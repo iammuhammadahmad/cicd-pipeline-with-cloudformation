@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: This CloudFormation Template launches all of the necessary resources to configure Custom Metrics for Glue Jobs
+
+Parameters:
+  SNSRecipientEmail:
+    Type: String
+    Description: This is a properly formatted email address that should be emailed by SNS in the case of a warning or error that occurs during the lambda function execution.
+
+  BucketName:
+    Type: String
+    Description: This is bucket name where lambda layer zip is present
+
+  ZipName:
+    Type: String
+    Description: This is zipfile name
+    Default: aws_embedded_metrics.zip
+
+Resources:
+  # SNS Topic for Error Notifications
+  SNSLogTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !Sub ${AWS::StackName}-Topic
+      Subscription:
+        - Endpoint: !Ref SNSRecipientEmail
+          Protocol: "email"
+
+  # Role for Lambda Function
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LoggingPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: Logging
+                Effect: Allow
+                Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+                Resource: 'arn:aws:logs:*:*:*'
+              - Sid: CloudWatch
+                Effect: Allow
+                Action:
+                - cloudwatch:*
+                Resource: '*'
+
+  #Lambda Layer for AWS Embedded metrics
+  LambdaLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties: 
+      CompatibleRuntimes: 
+        - python3.9
+      Content: 
+        S3Bucket: !Ref BucketName
+        S3Key: !Ref ZipName
+      Description: Lambda Layer for AWS Embedded Metrics
+      LayerName: AWS-Embedded-Metrics
+
+  # Lambda Function to create custom metrics for Glue Jobs
+  CustomMetricLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.9
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 90
+      TracingConfig: 
+        Mode: PassThrough
+      Layers:
+        - !Ref LambdaLayer
+      Code: ./lambda/index.py 
+  # CloudWatch Event Trigger for Lambda Function
+  EventsRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Create custom metrics from glue job events"
+      EventPattern:
+        source:
+          - "aws.glue"
+        detail-type : 
+          - "Glue Job State Change"
+      State: "ENABLED"
+      Targets:
+        - Arn: !GetAtt CustomMetricLambdaFunction.Arn
+          Id: CustomGlueJobMetrics
+
+  PermissionForEventsToInvokeLambda:
+    DependsOn: EventsRule
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CustomMetricLambdaFunction
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt EventsRule.Arn
+
+  # CloudWatch Alarm for the Lambda Functions error rates
+  LambdaCWAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions:
+        - !Ref SNSLogTopic
+      AlarmDescription: "This alarm triggers when an error occurs on the CustomMetricLambdaFunction"
+      AlarmName: "Glue-Job-CM-Lambda-Failure"
+      ComparisonOperator: "GreaterThanThreshold"
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref CustomMetricLambdaFunction
+      DatapointsToAlarm: 1
+      EvaluationPeriods: 1
+      InsufficientDataActions:
+        - !Ref SNSLogTopic
+      MetricName: "Errors"
+      Namespace: "AWS/Lambda"
+      Period: 60
+      Statistic: Maximum
+      Threshold: 0
+      TreatMissingData: ignore
