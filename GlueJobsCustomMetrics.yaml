@@ -10,11 +10,15 @@ Parameters:
   BucketName:
     Type: String
     Description: This is bucket name where lambda layer zip is present
-
+    Default: ahmadcf
   ZipName:
     Type: String
     Description: This is zipfile name
     Default: aws_embedded_metrics.zip
+  LambdaFile:
+    Type: String
+    Description: This is Lambda function
+    Default: lambda.zip
 
 Resources:
   # SNS Topic for Error Notifications
@@ -66,13 +70,13 @@ Resources:
         S3Bucket: !Ref BucketName
         S3Key: !Ref ZipName
       Description: Lambda Layer for AWS Embedded Metrics
-      LayerName: AWS-Embedded-Metrics
+      LayerName: aws-embedded-metrics
 
   # Lambda Function to create custom metrics for Glue Jobs
   CustomMetricLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
-      Handler: index.handler
+      Handler: lambda.index.handler
       Runtime: python3.9
       Role: !GetAtt LambdaRole.Arn
       Timeout: 90
@@ -80,7 +84,10 @@ Resources:
         Mode: PassThrough
       Layers:
         - !Ref LambdaLayer
-      Code: ./lambda/index.py 
+      Code:
+        S3Bucket: !Ref BucketName
+        S3Key: !Ref LambdaFile
+      PackageType: Zip
   # CloudWatch Event Trigger for Lambda Function
   EventsRule:
     Type: AWS::Events::Rule

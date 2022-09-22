@@ -1,0 +1,15 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo Zip lambda function and lambda layer...
+      - zip lambda.zip lambda
+      - zip aws_embedded_metrics.zip aws_embedded_metrics
+  build:
+    commands:
+      - echo "$environment"
+      # - serverless deploy --stage:${environment} #we make use of an environment variable here so we can reuse this buildspec.
+  post_build:
+    commands:
+      - echo Deployment successful
