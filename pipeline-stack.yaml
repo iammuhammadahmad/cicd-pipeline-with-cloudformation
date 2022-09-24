@@ -1,0 +1,273 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This template is used to create a CI/CD Pipeline that deploys.
+
+# Parameters to be used through out the template
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+  AppName: 
+    Type: String
+    Default: GluejobsCustomMetrics
+  GithubConnectionArn:
+    Type: String
+    Description: This arn is created in codepipeline connections through the console
+  GithubRepositoryName:
+    Type: String
+    Description: Path of the Github repository
+  GithubBranch:
+    Type: String
+    Default: main
+    Description: Name of the branch
+  BucketName:
+    Type: String
+    Description: This is bucket name where lambda layer & lambda function zip is present
+    Default: gluelambdaandlayer
+  LambdaLayer:
+    Type: String
+    Description: This is file name for the LambdaLayer. Only write the filename without zip extension
+    Default: aws_embedded_metrics
+  Lambda:
+    Type: String
+    Description: This is file name for the Lambda Function. Only write the filename without zip extension
+    Default: lambda
+  SNSRecipientEmail:
+    Type: String
+    Description: This the SNS Recipient Email
+    Default: heremuhammadahmad@gmail.com
+    
+Resources:
+ # Create CodePipeline with 2 stages (Source and Build)
+  CodePipeline:
+    Type: 'AWS::CodePipeline::Pipeline'
+    Properties:
+      RoleArn: !GetAtt CodePipeLineRole.Arn
+      Name: !Join ['-', [!Ref AppName,'CodePipeLine',!Ref Stage]]
+      ArtifactStore:
+        Location: !Ref ArtifactsBucket
+        Type: S3
+
+      # Stages declaration
+      Stages:
+     # Download source code from Github Repo S3 Bucket
+        - 
+          Name: Source
+          Actions: 
+            - 
+              Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: '1'
+              OutputArtifacts: 
+                - Name: sourceArtifact
+              Configuration:
+                ConnectionArn: !Ref GithubConnectionArn
+                FullRepositoryId: !Ref GithubRepositoryName
+                BranchName: !Ref GithubBranch
+                OutputArtifactFormat: "CODE_ZIP"
+        
+        # Build the project using the BuildProject and Output build artifacts to S3 Bucket
+        - 
+          Name: Build
+          Actions: 
+            - 
+              Name: BuildAction
+              ActionTypeId: 
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              InputArtifacts: 
+                - Name: sourceArtifact
+              Configuration:
+                ProjectName: !Ref CodeBuild
+      # Create a name tag for the pipeline
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref AppName,'CodePipeLine',!Ref Stage]]
+
+  # Create role for CodeBuild
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - 
+            Effect: Allow
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /service-role/
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement: 
+              - 
+                Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetBucketVersioning"
+                  - "s3:PutObject"
+                  - "s3:PutObjectAcl"
+                  - "s3:PutObjectVersionAcl"
+                  - "s3:ListBucket"
+                Resource: 
+                  - !GetAtt ArtifactsBucket.Arn
+                  - !Join ['', [!GetAtt ArtifactsBucket.Arn, "/*"]]
+                  - !GetAtt LambdaPlusLayerBucket.Arn
+                  - !Join ['', [!GetAtt LambdaPlusLayerBucket.Arn, "/*"]]
+              -
+                Effect: Allow
+                Action:
+                  - "CloudFormation:CreateStack"
+                  - "CloudFormation:DeleteStack"
+                  - "CloudFormation:DescribeStacks"
+                  - "CloudFormation:UpdateStack"
+                  - "CloudFormation:CreateChangeSet"
+                  - "CloudFormation:DeleteChangeSet"
+                  - "CloudFormation:DescribeChangeSet"
+                  - "CloudFormation:ExecuteChangeSet"
+                  - "CloudFormation:SetStackPolicy"
+                  - "CloudFormation:ValidateTemplate"
+                  - "CloudFormation:GetTemplateSummary"
+                Resource: "*"
+              - 
+                Effect: Allow
+                Action:
+                  - "lambda:*"
+                  - "iam:*"
+                  - "events:*"
+                  - "cloudwatch:*"
+                Resource: "*"
+              - 
+                Effect: Allow
+                Action:
+                  - "sns:*"
+                Resource: "*"
+              -
+                Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                  - "cloudfront:CreateInvalidation"
+                Resource: "*"
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref AppName,'BuildRole', !Ref Stage]]
+
+
+  # Create role for CodePipeline
+  CodePipeLineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - 
+            Effect: Allow
+            Principal:
+              Service:
+                - "codepipeline.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement: 
+              - 
+                Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetBucketVersioning"
+                  - "s3:GetObjectAcl"
+                  - "s3:PutObject"
+                  - "s3:PutObjectAcl"
+                  - "s3:PutObjectVersionAcl"                  
+                Resource: 
+                  - !GetAtt ArtifactsBucket.Arn
+                  - !Join ['', [!GetAtt ArtifactsBucket.Arn, "/*"]]
+              - 
+                Effect: Allow  
+                Action:
+                  - "codebuild:BatchGetBuilds"
+                  - "codebuild:StartBuild"
+                Resource: "*"
+              - 
+                Effect: Allow  
+                Action:
+                  - "codecommit:GetRepository"
+                  - "codecommit:GetBranch"
+                  - "codecommit:GetCommit"
+                  - "codecommit:UploadArchive"
+                  - "codecommit:GetUploadArchiveStatus"
+                  - "codecommit:CancelUploadArchive"
+                Resource: "*"    
+               - 
+                Effect: Allow  
+                Action:
+                  - "codestar-connections:UseConnection"
+                Resource: "*"          
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref AppName, 'PipelineRole', !Ref Stage]]
+
+  
+  # Create Code Build Project
+  CodeBuild:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Name: !Sub ${AWS::StackName}-CodeBuild
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Source: 
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:3.0
+        EnvironmentVariables:
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref "AWS::Region"
+          - Name: AWS_ACCOUNT_ID
+            Value: !Ref "AWS::AccountId"
+          - Name: S3_BUCKET # this is the s3 bucket where is lambda code & layer 
+            Value: !Ref LambdaPlusLayerBucket # Ref commands refer to parameters
+          - Name: LambdaLayer
+            Value: !Ref LambdaLayer
+          - Name: Lambda
+            Value: !Ref Lambda
+          - Name: SNSRecipientEmail
+            Value: !Ref SNSRecipientEmail
+      Source:
+        Type: CODEPIPELINE
+        # This file (buildspec.yml In Source code) contains commands to Create and Push a docker image to the ECR_REPOSITORY_URI
+        BuildSpec: buildspec.yml
+
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref AppName,'BuildProj', !Ref Stage]]
+  
+  # Create S3 Buckets (Storing Pipeline Artifacts)
+  ArtifactsBucket: 
+    Type: 'AWS::S3::Bucket'
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Join ['-', ['gluejobspipelineartifacts', !Ref Stage]]
+
+  # Create S3 Buckets (Storing Lambda and Layer)
+  LambdaPlusLayerBucket: 
+    Type: 'AWS::S3::Bucket'
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Join ['-', [!Ref BucketName, !Ref Stage]]
