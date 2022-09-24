@@ -3,13 +3,26 @@ version: 0.2
 phases:
   pre_build:
     commands:
+      - echo "Changing into source directory $CODEBUILD_SRC_DIR"
+      - cd $CODEBUILD_SRC_DIR
       - echo Zip lambda function and lambda layer...
-      - zip lambda.zip lambda
-      - zip aws_embedded_metrics.zip aws_embedded_metrics
+      - dateTime=$(date +"%Y-%m-%d-%H-%M-%S")
+      - LambdaZipVersion="$Lambda"-"$dateTime".zip
+      - LambdaLayerZipVersion="$LambdaLayer"-"$dateTime".zip
+      - zip -r "$LambdaZipVersion" lambda
+      - zip -r "$LambdaLayerZipVersion" aws_embedded_metrics
   build:
     commands:
-      - echo "$environment"
-      # - serverless deploy --stage:${environment} #we make use of an environment variable here so we can reuse this buildspec.
+      - ls
+      - echo Uploading Lambda and  Layer zip file to S3 Bucket
+      - aws s3 sync . s3://"$S3_BUCKET"/  --exclude "*" --include "*.zip"
+      - echo Successfully uploaded Lambda and Lambda Layer to "$S3_BUCKET"
   post_build:
     commands:
-      - echo Deployment successful
+      - echo Deploying the CF
+      - chmod +x create-update-stack.sh
+      - ./create-update-stack.sh myGluejobsCustomMetrics $LambdaZipVersion $LambdaLayerZipVersion
+      - echo CF Deployment successful
+artifacts:
+  files:
+    - "**/*"
