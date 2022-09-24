@@ -212,7 +212,7 @@ Resources:
                   - "codecommit:GetUploadArchiveStatus"
                   - "codecommit:CancelUploadArchive"
                 Resource: "*"    
-               - 
+              - 
                 Effect: Allow  
                 Action:
                   - "codestar-connections:UseConnection"

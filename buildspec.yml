@@ -19,6 +19,8 @@ phases:
       - echo Successfully uploaded Lambda and Lambda Layer to "$S3_BUCKET"
   post_build:
     commands:
+      - echo show all files
+      - ls
       - echo Deploying the CF
       - chmod +x create-update-stack.sh
       - ./create-update-stack.sh myGluejobsCustomMetrics $LambdaZipVersion $LambdaLayerZipVersion
